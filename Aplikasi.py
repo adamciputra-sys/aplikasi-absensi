@@ -19,12 +19,17 @@ app.add_middleware(
 )
 
 ALLOWED_BSSIDS = ["00:11:22:33:44:55"]
-os.makedirs("uploads", exist_ok=True)
+
+# Menentukan folder penyimpanan sementara (Gunakan /tmp untuk Vercel serverless)
+UPLOAD_DIR = "/tmp" if os.environ.get("VERCEL") else "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # 1. Endpoint Utama: Menyajikan halaman web index.html saat link dibuka di browser
 @app.get("/")
 async def serve_index():
-    return FileResponse("index.html")
+    if os.path.exists("index.html"):
+        return FileResponse("index.html")
+    return {"message": "Server FastAPI Berjalan! Silakan unggah file index.html"}
 
 def dapatkan_alamat(lat: str, lon: str) -> str:
     """Mengubah Latitude & Longitude menjadi Alamat Ringkas"""
@@ -80,8 +85,8 @@ async def simpan_absensi(
     foto_bytes = await foto.read()
     foto_berisi_teks = tambahkan_watermark(foto_bytes, tanggal_tampil, alamat_lengkap, tipe_absen)
 
-    # Nama file foto disesuaikan dengan tipe absensinya
-    file_path = f"uploads/absensi_{tipe_absen}_{user_id}_{waktu_str}.jpg"
+    # Nama file foto disimpan di folder sementara UPLOAD_DIR (/tmp)
+    file_path = os.path.join(UPLOAD_DIR, f"absensi_{tipe_absen}_{user_id}_{waktu_str}.jpg")
     with open(file_path, "wb") as buffer:
         buffer.write(foto_berisi_teks)
 
