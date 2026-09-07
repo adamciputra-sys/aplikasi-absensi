@@ -1,6 +1,6 @@
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from datetime import datetime
 import os
 import urllib.request
@@ -20,16 +20,20 @@ app.add_middleware(
 
 ALLOWED_BSSIDS = ["00:11:22:33:44:55"]
 
-# Menentukan folder penyimpanan sementara (Gunakan /tmp untuk Vercel serverless)
+# Menentukan folder penyimpanan sementara untuk Vercel serverless
 UPLOAD_DIR = "/tmp" if os.environ.get("VERCEL") else "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+# Path dinamis untuk index.html
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+INDEX_PATH = os.path.join(BASE_DIR, "index.html")
 
 # 1. Endpoint Utama: Menyajikan halaman web index.html saat link dibuka di browser
 @app.get("/")
 async def serve_index():
-    if os.path.exists("index.html"):
-        return FileResponse("index.html")
-    return {"message": "Server FastAPI Berjalan! Silakan unggah file index.html"}
+    if os.path.exists(INDEX_PATH):
+        return FileResponse(INDEX_PATH)
+    return HTMLResponse(content="<h2>Aplikasi Absensi Aktif! File index.html belum ditemukan.</h2>", status_code=200)
 
 def dapatkan_alamat(lat: str, lon: str) -> str:
     """Mengubah Latitude & Longitude menjadi Alamat Ringkas"""
@@ -66,7 +70,7 @@ def tambahkan_watermark(image_bytes: bytes, tanggal: str, alamat: str, tipe_abse
 async def simpan_absensi(
     bssid: str = Form(...),
     user_id: str = Form(...),
-    tipe_absen: str = Form("Masuk"),  # Menerima Tipe Absensi (Masuk / Pulang)
+    tipe_absen: str = Form("Masuk"),
     latitude: str = Form(None),
     longitude: str = Form(None),
     foto: UploadFile = File(...)
@@ -85,7 +89,6 @@ async def simpan_absensi(
     foto_bytes = await foto.read()
     foto_berisi_teks = tambahkan_watermark(foto_bytes, tanggal_tampil, alamat_lengkap, tipe_absen)
 
-    # Nama file foto disimpan di folder sementara UPLOAD_DIR (/tmp)
     file_path = os.path.join(UPLOAD_DIR, f"absensi_{tipe_absen}_{user_id}_{waktu_str}.jpg")
     with open(file_path, "wb") as buffer:
         buffer.write(foto_berisi_teks)
