@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Absensi Pegawai</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 20px; background: #f4f4f9; }
+        .card { background: white; padding: 20px; border-radius: 10px; max-width: 400px; margin: auto; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        .jam-box { font-size: 18px; font-weight: bold; color: #333; margin: 10px 0; background: #eef2f7; padding: 8px; border-radius: 6px; }
+        video, canvas { width: 100%; border-radius: 8px; background: #000; margin-top: 10px; object-fit: cover; }
+        input, select, button { width: 100%; padding: 10px; margin-top: 10px; border-radius: 5px; border: 1px solid #ccc; box-sizing: border-box; }
+        button { background: #28a745; color: white; border: none; font-weight: bold; cursor: pointer; }
+        button:disabled { background: #ccc; }
+        #status { margin-top: 15px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>Absensi Pegawai</h2>
+    
+    <div class="jam-box" id="clock">--:--:--</div>
+
+    <label style="display:block; text-align:left;">ID Pegawai:</label>
+    <input type="text" id="userId" placeholder="Masukkan ID Pegawai">
+
+    <label style="display:block; text-align:left; margin-top:10px;">Tipe Absensi:</label>
+    <select id="tipeAbsen">
+        <option value="Masuk">Absen Masuk</option>
+        <option value="Pulang">Absen Pulang</option>
+    </select>
+
+    <video id="webcam" autoplay playsinline muted></video>
+    <canvas id="canvas" style="display:none;"></canvas>
+
+    <button id="btnAmbil" onclick="ambilFoto()">1. Ambil Foto Selfie</button>
+    <button id="btnKirim" onclick="kirimAbsensi()" disabled>2. Kirim Absensi</button>
+
+    <div id="status"></div>
+</div>
+
+<script>
+    const video = document.getElementById('webcam');
+    const canvas = document.getElementById('canvas');
+    const statusDiv = document.getElementById('status');
+    let fotoBlob = null;
+
+    // 1. Jam Real-time
+    function updateClock() {
+        const now = new Date();
+        const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' };
+        document.getElementById('clock').innerText = now.toLocaleDateString('id-ID', options);
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // 2. Inisialisasi Kamera Depan
+    navigator.mediaDevices.getUserMedia({ 
+        video: { 
+            facingMode: "user",
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+        } 
+    })
+    .then(stream => {
+        video.srcObject = stream;
+        video.play();
+    })
+    .catch(err => {
+        console.error("Error Kamera:", err);
+        statusDiv.innerText = "❌ Gagal mengakses kamera: " + (err.name || err);
+        statusDiv.style.color = "red";
+    });
+
+    // 3. Ambil Foto Selfie
+    function ambilFoto() {
+        const context = canvas.getContext('2d');
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        canvas.toBlob(blob => {
+            fotoBlob = blob;
+            statusDiv.innerText = "Foto selfie berhasil diambil!";
+            statusDiv.style.color = "blue";
+            document.getElementById('btnKirim').disabled = false;
+        }, 'image/jpeg');
+    }
+
+    // 4. Ambil Koordinat GPS
+    function DapatkanLokasi() {
+        return new Promise((resolve, reject) => {
+            if (!navigator.geolocation) {
+                reject("Geolocation tidak didukung oleh browser Anda");
+            } else {
+                navigator.geolocation.getCurrentPosition(
+                    position => resolve({
+                        lat: position.coords.latitude,
+                        lon: position.coords.longitude
+                    }),
+                    err => reject("Gagal mendapatkan lokasi. Pastikan izin GPS aktif.")
+                );
+            }
+        });
+    }
+
+    // 5. Kirim Absensi ke FastAPI
+    async function kirimAbsensi() {
+        if (!fotoBlob) return;
+
+        statusDiv.innerText = "Mendeteksi lokasi & mengirim data...";
+        statusDiv.style.color = "black";
+
+        let latitude = "";
+        let longitude = "";
+
+        try {
+            const pos = await DapatkanLokasi();
+            latitude = pos.lat;
+            longitude = pos.lon;
+        } catch (err) {
+            alert(err);
+            statusDiv.innerText = "❌ Absensi dibatalkan: Izin lokasi diperlukan.";
+            statusDiv.style.color = "red";
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append("user_id", document.getElementById('userId').value);
+        formData.append("tipe_absen", document.getElementById('tipeAbsen').value);
+        formData.append("bssid", "00:11:22:33:44:55");
+        formData.append("latitude", latitude);
+        formData.append("longitude", longitude);
+        formData.append("foto", fotoBlob, "selfie.jpg");
+
+        try {
+            const response = await fetch("/api/absensi", {
+                method: "POST",
+                body: formData
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                statusDiv.innerHTML = `✅ ${result.message}<br><br><small style="color:#555;"><b>Alamat:</b> ${result.data.alamat}</small>`;
+                statusDiv.style.color = "green";
+            } else {
+                statusDiv.innerText = "❌ Gagal: " + (result.detail || "Terjadi kesalahan");
+                statusDiv.style.color = "red";
+            }
+        } catch (error) {
+            statusDiv.innerText = "❌ Gagal terhubung ke server FastAPI!";
+            statusDiv.style.color = "red";
+        }
+    }
+</script>
+
+</body>
+</html>
